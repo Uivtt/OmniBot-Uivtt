@@ -15,15 +15,9 @@
 
 <div align="center">
   <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/omnimind-ai/OmniBot">
-  <a href="https://github.com/omnimind-ai/OpenOmniBot/releases/latest"><img alt="GitHub Release" src="https://badgen.net/github/release/omnimind-ai/OpenOmniBot/stable"></a>
+  <a href="https://github.com/omnimind-ai/OmniBot/releases/latest"><img alt="GitHub Release" src="https://badgen.net/github/release/omnimind-ai/OmniBot/stable"></a>
   <br>
-  <a href="https://trendshift.io/repositories/26966" target="_blank"><img src="https://trendshift.io/api/badge/repositories/26966" alt="omnimind-ai%2FOpenOmniBot | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-  <br>
-  <a href="https://omnimind.com.cn"><img src="https://img.shields.io/badge/About_us-万象智维-purple.svg?color=%234b0c77" alt="万象智维"></a>
-  <a href="https://linux.do"><img src="https://img.shields.io/badge/Linux_Do-社区-yellow.svg?color=%23ac3712" alt="LinuxDo社区"></a>
-  <a href="#community">
-    <img src="https://img.shields.io/badge/WeChat-微信群-lightgreen" alt="微信群"/>
-  </a>
+  <a href="https://trendshift.io/repositories/26966?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-26966" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/26966" alt="omnimind-ai%2FOmniBot | Trendshift" width="250" height="55"/></a>
 </div>
 
 <p align="center">
@@ -39,6 +33,7 @@
 </p>
 
 > 在 Android 上使用 Kimi Code / DeepSeek Harness WebUI，切换不同 Agent Harness，让多个智能体并行完成任务。
+> iOS 与 macOS 版本：[ViaVera](https://github.com/omnimind-ai/ViaVera)
 
 OmniBot：原生android AI工作站，把 AI 对话、Agent 运行环境、本地工作区与 Android 系统工具整合在一个应用中。无需电脑，开箱即用，选择你喜欢的 Agent，分派任务、调用工具、汇总结果。
 
@@ -133,8 +128,8 @@ npx @thuocean/codex-bridge
 
 ### 环境要求
 
-- Flutter SDK `3.9.2+`
-- JDK `11+`
+- Flutter SDK `3.47.2+`
+- JDK `17+`
 - Node.js `20.19+` 或 `22.12+`、pnpm `10.28.0`（用于 WebUI 开发）
 
 ### 获取代码
