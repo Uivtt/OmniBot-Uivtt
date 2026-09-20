@@ -95,12 +95,13 @@ def verify(db, marker, expected, summary=None):
         replies=[p for p in assistants if p.get('content',{}).get('text')==marker+suffix or
             (live_scenario and p.get('content',{}).get('text','').rstrip().rstrip('*`').rstrip().endswith(marker+suffix))]
         assert len(replies)==1 and replies[0].get('streamMeta',{}).get('stopReason')=='end_turn', 'Missing canonical completion'
-        if marker.startswith('OOB_LIVE_DOCUMENT_FAILURE_'):
+        if marker.startswith(('OOB_LIVE_DOCUMENT_FAILURE_', 'OOB_LIVE_SCAN_FAILURE_', 'OOB_LIVE_PASSWORD_FAILURE_')):
             reads=[p for t,p in rows if t=='tool_event' and p.get('toolName')=='file_read']
-            assert len(reads)==1 and reads[0].get('success') is False, 'Malformed PDF must produce one failed file_read'
+            assert len(reads)==1 and reads[0].get('success') is False, 'Unreadable PDF must produce one failed file_read'
             result=json.loads(reads[0].get('rawResultJson') or '{}').get('result',{})
-            assert result.get('contentAvailable') is False and result.get('errorCode')=='document_parse_failed', 'Wrong document failure'
-            assert not result.get('content'), 'Malformed file reported body'
+            error_code = 'document_ocr_required' if marker.startswith('OOB_LIVE_SCAN_') else 'document_password_required' if marker.startswith('OOB_LIVE_PASSWORD_') else 'document_parse_failed'
+            assert result.get('contentAvailable') is False and result.get('errorCode')==error_code, 'Wrong document failure'
+            assert not result.get('content'), 'Unreadable file reported body'
             assert 'UNREADABLE' in replies[0].get('content',{}).get('text',''), 'Missing user-facing failure explanation'
         if marker.startswith(('OOB_LIVE_DOCUMENT_NEXT_', 'OOB_LIVE_CONTEXT_NEXT_')):
             assert re.search(r'\b42\b',replies[0].get('content',{}).get('text','')), 'Next task did not answer correctly'

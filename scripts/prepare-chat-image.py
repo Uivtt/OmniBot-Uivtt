@@ -14,7 +14,7 @@ from pathlib import Path
 serial = sys.argv[1]
 assert re.fullmatch(r'[A-Za-z0-9._:-]+', serial)
 name = sys.argv[2] if len(sys.argv) > 2 else 'chat-upload-colors.png'
-assert name in ('chat-upload-colors.png', 'chat-upload-colors-second.png', 'chat-upload-record.txt', 'chat-upload-invoice.pdf', 'chat-upload-office.docx', 'chat-upload-office.xlsx', 'chat-upload-broken.pdf')
+assert name in ('chat-upload-colors.png', 'chat-upload-colors-second.png', 'chat-upload-record.txt', 'chat-upload-invoice.pdf', 'chat-upload-office.docx', 'chat-upload-office.xlsx', 'chat-upload-broken.pdf', 'chat-upload-scan.pdf', 'chat-upload-password.pdf')
 
 def adb(*args):
     return subprocess.check_output(['adb', '-s', serial, *args], timeout=30)
