@@ -167,6 +167,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Cache Android SDK release packages
         id: cache-android-sdk

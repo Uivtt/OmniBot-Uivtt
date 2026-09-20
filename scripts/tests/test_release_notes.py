@@ -12,6 +12,10 @@ WORKFLOW = (ROOT / '.github/workflows/release.yml').read_text()
 
 
 class ReleaseNotesTest(unittest.TestCase):
+    def test_android_setup_does_not_request_removed_tools_package(self):
+        setup = WORKFLOW.split("uses: android-actions/setup-android@v3", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("packages: platform-tools", setup)
+
     def payload(self, notes):
         block = WORKFLOW.split("<<'PY' > \"${payload_file}\"\n", 1)[1].split('\n          PY', 1)[0]
         with tempfile.TemporaryDirectory() as directory:
