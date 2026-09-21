@@ -34,9 +34,12 @@ class AppUpdateManagerTest {
     }
 
     @Test
-    fun apkDownloadSourceDefaultsLegacyCnbToWorker() {
-        assertEquals(ApkDownloadSource.WORKER, ApkDownloadSource.fromValue(null))
-        assertEquals(ApkDownloadSource.WORKER, ApkDownloadSource.fromValue("cnb"))
+    fun apkDownloadSourceAlwaysResolvesToGithub() {
+        // 二改：版本来源固定为本仓库 GitHub Releases，不再回落到上游 worker，
+        // 避免 readState 重写 apkDownloadUrl 时把地址改回官方下载源。
+        assertEquals(ApkDownloadSource.GITHUB, ApkDownloadSource.fromValue(null))
+        assertEquals(ApkDownloadSource.GITHUB, ApkDownloadSource.fromValue("cnb"))
+        assertEquals(ApkDownloadSource.GITHUB, ApkDownloadSource.fromValue("worker"))
         assertEquals(ApkDownloadSource.GITHUB, ApkDownloadSource.fromValue("github"))
     }
 
@@ -136,8 +139,9 @@ class AppUpdateManagerTest {
             "https://omni.1775885.xyz/downloads/v0.3.7.5/OpenOmniBot-v0.3.7.5.apk",
             AppUpdateManager.resolveApkDownloadUrl(ApkDownloadSource.WORKER, "0.3.7.5", asset)
         )
+        // 二改：GITHUB 源前缀指向本仓库 Uivtt/OmniBot-Uivtt。
         assertEquals(
-            "https://github.com/omnimind-ai/OpenOmniBot/releases/download/v0.3.7.5/OpenOmniBot-v0.3.7.5.apk",
+            "https://github.com/Uivtt/OmniBot-Uivtt/releases/download/v0.3.7.5/OpenOmniBot-v0.3.7.5.apk",
             AppUpdateManager.resolveApkDownloadUrl(ApkDownloadSource.GITHUB, "0.3.7.5", asset)
         )
     }
