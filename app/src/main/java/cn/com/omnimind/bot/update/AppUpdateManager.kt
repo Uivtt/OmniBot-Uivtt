@@ -83,12 +83,20 @@ internal enum class ApkDownloadSource(val value: String) {
     GITHUB("github");
 
     companion object {
-        fun fromValue(raw: String?): ApkDownloadSource {
-            return when (raw?.trim()?.lowercase(Locale.ROOT)) {
-                GITHUB.value -> GITHUB
-                else -> WORKER
-            }
-        }
+        /**
+         * 二改作者修改：APK 下载源强制指向本仓库 GitHub Releases。
+         *
+         * 上游默认返回 [WORKER]，而 [AppUpdateManager.readState] 会调用
+         * [AppUpdateManager.applyPreferredDownloadSource] 用该结果重写
+         * `apkDownloadUrl`，导致二改版最终下载的仍是**官方签名包**，
+         * 与二改的 debug 签名冲突，安装必然失败
+         * （INSTALL_FAILED_UPDATE_INCOMPATIBLE）。
+         *
+         * 因此这里忽略历史偏好值，一律返回 [GITHUB]。
+         * 如需恢复上游行为，把下面的实现改回按 `raw` 判断即可。
+         */
+        @Suppress("UNUSED_PARAMETER")
+        fun fromValue(raw: String?): ApkDownloadSource = GITHUB
     }
 }
 
@@ -145,6 +153,16 @@ object AppUpdateManager {
     private const val GITHUB_REPOSITORY_NAME = "OmniBot-Uivtt"
     private const val GITHUB_RELEASE_DOWNLOAD_PREFIX =
         "https://github.com/$GITHUB_REPOSITORY_OWNER/$GITHUB_REPOSITORY_NAME/releases/download"
+
+    /**
+     * 二改作者新增：更新检测的主通道。
+     *
+     * 上游只用自建 worker 下发版本信息，二改版不能沿用——那会让二改版被引导
+     * 去下载官方签名包。这里改为直接读本仓库的 GitHub Releases API。
+     */
+    private const val GITHUB_RELEASES_API_URL =
+        "https://api.github.com/repos/$GITHUB_REPOSITORY_OWNER/$GITHUB_REPOSITORY_NAME/releases"
+    private const val GITHUB_RELEASES_PER_PAGE = 30
 
     /** 二改版本号前缀：release 资源名与安装展示名统一使用它。 */
     private const val RELEASE_ASSET_PREFIX = "OmniBot-Uivtt"
@@ -497,6 +515,15 @@ object AppUpdateManager {
             ?: "0.0.0"
     }
 
+    /**
+     * 二改作者修改：更新检测改为以**本仓库 GitHub Releases** 为主通道。
+     *
+     * 上游只信任自建 worker 下发的 release 字段，二改版不能沿用：那会让二改版
+     * 被引导去下载官方签名包，二改 debug 签名与之冲突，安装必然失败。
+     *
+     * 上游 worker 仍会访问，但**只用于**获取云服务策略与顺带缓存官方 VLM 配置，
+     * 其返回的 release / assets 字段一律忽略。
+     */
     private fun fetchLatestReleaseState(
         currentVersion: String,
         includeBeta: Boolean,
@@ -504,46 +531,187 @@ object AppUpdateManager {
         deviceStatsParams: Map<String, String> = emptyMap()
     ): AppUpdateState {
         val checkedAt = System.currentTimeMillis()
-        val updatesUrl = buildWorkerCheckUrl(
-            workerUrl = BuildConfig.APP_UPDATE_WORKER_URL,
+        val edition = BuildConfig.APP_EDITION
+
+        val releaseState = runCatching {
+            fetchGitHubReleaseState(
+                currentVersion = currentVersion,
+                includeBeta = includeBeta,
+                edition = edition,
+                downloadSource = downloadSource,
+                checkedAt = checkedAt
+            )
+        }.getOrElse { error ->
+            OmniLog.w(TAG, "GitHub release check failed: ${error.message}")
+            emptyState(currentVersion, checkedAt = checkedAt)
+        }
+
+        val cloudServicePolicy = fetchWorkerCloudServicePolicy(
             currentVersion = currentVersion,
             includeBeta = includeBeta,
             downloadSource = downloadSource,
-            edition = BuildConfig.APP_EDITION,
-            deviceStatsParams = deviceStatsParams
-        )
-        if (updatesUrl == null) {
-            OmniLog.w(TAG, "App update worker URL is not configured")
-            return emptyState(currentVersion, checkedAt = checkedAt)
-        }
+            edition = edition,
+            deviceStatsParams = deviceStatsParams,
+            checkedAt = checkedAt
+        ) ?: return releaseState
+        return applyCloudServicePolicy(releaseState, cloudServicePolicy)
+    }
+
+    /**
+     * 二改作者新增：从本仓库 GitHub Releases API 读取最新版本。
+     *
+     * 只取草稿之外的 release，版本号由 `tag_name` 归一化得到，
+     * APK 资源沿用上游的 [selectPreferredApkAsset] 选择策略（支持
+     * `-standard.apk` 与 `OmniBot-Uivtt-*` 两种命名）。
+     */
+    private fun fetchGitHubReleaseState(
+        currentVersion: String,
+        includeBeta: Boolean,
+        edition: String,
+        downloadSource: ApkDownloadSource,
+        checkedAt: Long
+    ): AppUpdateState {
+        val url = GITHUB_RELEASES_API_URL.toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.addQueryParameter("per_page", GITHUB_RELEASES_PER_PAGE.toString())
+            ?.build()
+            ?: throw IOException("Invalid GitHub releases API url")
 
         val request = Request.Builder()
-            .url(updatesUrl)
-            .addHeader("Accept", "application/json")
+            .url(url)
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("X-GitHub-Api-Version", "2022-11-28")
             .addHeader("User-Agent", USER_AGENT)
             .get()
             .build()
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("App update worker request failed with code ${response.code}")
+                throw IOException("GitHub releases request failed with code ${response.code}")
             }
 
             val body = response.body?.string().orEmpty()
             if (body.isBlank()) {
-                throw IOException("App update worker response body is empty")
+                throw IOException("GitHub releases response body is empty")
             }
-            val payload = JSONObject(body)
-            cacheOfficialVlmOperationConfig(body)
-            return parseWorkerUpdateState(
-                payload = payload,
+
+            val release = selectLatestRelease(parseGitHubReleases(JSONArray(body)), includeBeta)
+                ?: return emptyState(currentVersion, checkedAt = checkedAt)
+
+            val asset = selectPreferredApkAsset(release.assets, edition)
+                ?: return AppUpdateState(
+                    currentVersion = currentVersion,
+                    latestVersion = release.version,
+                    hasUpdate = false,
+                    checkedAt = checkedAt,
+                    publishedAt = release.publishedAt,
+                    releaseUrl = release.releaseUrl,
+                    releaseNotes = release.releaseNotes,
+                    apkName = "",
+                    apkDownloadUrl = ""
+                )
+
+            val downloadUrl = asset.downloadUrl.ifBlank {
+                resolveApkDownloadUrl(downloadSource, release.version, asset)
+            }
+
+            return AppUpdateState(
                 currentVersion = currentVersion,
-                includeBeta = includeBeta,
-                downloadSource = downloadSource,
-                edition = BuildConfig.APP_EDITION,
-                checkedAt = checkedAt
+                latestVersion = release.version,
+                hasUpdate = compareVersions(release.version, currentVersion) > 0,
+                checkedAt = checkedAt,
+                publishedAt = release.publishedAt,
+                releaseUrl = release.releaseUrl,
+                releaseNotes = release.releaseNotes,
+                apkName = asset.name,
+                apkDownloadUrl = downloadUrl
             )
         }
+    }
+
+    /**
+     * 二改作者新增：把 GitHub Releases 数组解析为候选版本列表。
+     *
+     * 跳过草稿；`prerelease=true` 归入 BETA 轨道，只有开启 Beta 参与时才会被选中。
+     */
+    @VisibleForTesting
+    internal fun parseGitHubReleases(array: JSONArray): List<ReleaseCandidate> {
+        val candidates = mutableListOf<ReleaseCandidate>()
+        for (index in 0 until array.length()) {
+            val raw = array.optJSONObject(index) ?: continue
+            if (raw.optBoolean("draft")) continue
+            val version = normalizeVersion(firstString(raw, "tag_name", "tagName", "name"))
+            if (version.isBlank()) continue
+            candidates += ReleaseCandidate(
+                version = version,
+                track = classifyReleaseTrack(
+                    rawVersion = version,
+                    prerelease = raw.optBoolean("prerelease")
+                ),
+                publishedAt = parseTimestampToMillis(
+                    firstValue(raw, "published_at", "publishedAt", "created_at", "createdAt")
+                ),
+                releaseUrl = firstString(raw, "html_url", "htmlUrl", "url"),
+                releaseNotes = firstString(raw, "body", "releaseNotes", "notes"),
+                assets = parseWorkerAssets(raw.optJSONArray("assets"), ApkDownloadSource.GITHUB)
+            )
+        }
+        return candidates
+    }
+
+    /**
+     * 二改作者新增：访问上游 worker，但只取云服务策略（并顺带缓存官方 VLM 配置）。
+     *
+     * 返回 `null` 表示 worker 未配置或不可用，此时不影响 GitHub 主通道的结果。
+     */
+    private fun fetchWorkerCloudServicePolicy(
+        currentVersion: String,
+        includeBeta: Boolean,
+        downloadSource: ApkDownloadSource,
+        edition: String,
+        deviceStatsParams: Map<String, String>,
+        checkedAt: Long
+    ): ParsedCloudServicePolicy? {
+        val updatesUrl = buildWorkerCheckUrl(
+            workerUrl = BuildConfig.APP_UPDATE_WORKER_URL,
+            currentVersion = currentVersion,
+            includeBeta = includeBeta,
+            downloadSource = downloadSource,
+            edition = edition,
+            deviceStatsParams = deviceStatsParams
+        )
+        if (updatesUrl == null) {
+            OmniLog.w(TAG, "App update worker URL is not configured")
+            return null
+        }
+
+        return runCatching {
+            val request = Request.Builder()
+                .url(updatesUrl)
+                .addHeader("Accept", "application/json")
+                .addHeader("User-Agent", USER_AGENT)
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("App update worker request failed with code ${response.code}")
+                }
+
+                val body = response.body?.string().orEmpty()
+                if (body.isBlank()) {
+                    throw IOException("App update worker response body is empty")
+                }
+                cacheOfficialVlmOperationConfig(body)
+                parseCloudServicePolicy(
+                    payload = JSONObject(body),
+                    currentVersion = currentVersion,
+                    checkedAt = checkedAt
+                )
+            }
+        }.onFailure { error ->
+            OmniLog.w(TAG, "App update worker policy fetch failed: ${error.message}")
+        }.getOrNull()
     }
 
     private fun cacheOfficialVlmOperationConfig(payloadJson: String) {
