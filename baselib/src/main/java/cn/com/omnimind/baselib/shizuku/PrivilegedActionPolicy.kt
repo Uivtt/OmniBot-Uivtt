@@ -204,7 +204,22 @@ object PrivilegedActionPolicy {
 
     fun isHostPackage(packageName: String?): Boolean {
         val normalized = packageName?.trim().orEmpty()
-        return normalized == "cn.com.omnimind.bot" ||
-            normalized.startsWith("cn.com.omnimind.bot.")
+        if (normalized.isEmpty()) {
+            return false
+        }
+        return HOST_PACKAGE_PREFIXES.any { prefix ->
+            normalized == prefix || normalized.startsWith("$prefix.")
+        }
     }
+
+    /**
+     * 二改：应用自身包名集合。
+     * 二改版 applicationId 为 cn.com.omnimind.bot.uivtt，
+     * 与上游 cn.com.omnimind.bot 并存安装，因此两者都识为主应用。
+     * 该集合用于阻止 Shizuku 高权限命令打到自身进程。
+     */
+    private val HOST_PACKAGE_PREFIXES = listOf(
+        "cn.com.omnimind.bot.uivtt",
+        "cn.com.omnimind.bot",
+    )
 }

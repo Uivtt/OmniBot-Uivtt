@@ -166,7 +166,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "cn.com.omnimind.bot"
+        applicationId = "cn.com.omnimind.bot.uivtt"
         minSdk = 29
         targetSdk = 36
         // Release 0.6.1. Keep the Android version code monotonic so the APK
