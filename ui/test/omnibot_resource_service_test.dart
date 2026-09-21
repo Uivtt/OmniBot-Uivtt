@@ -146,7 +146,12 @@ void main() {
       final initial = await OmnibotResourceService.ensureWorkspacePathsLoaded(
         forceRefresh: true,
       );
-      expect(initial.rootPath, workspacePaths.rootPath);
+      // 二改：applicationId 为 cn.com.omnimind.bot.uivtt，channel 不可用时的
+      // 兜底工作区路径随之变化。这里刻意保留字面量，避免与实现常量同义反复。
+      expect(
+        initial.rootPath,
+        '/data/user/0/cn.com.omnimind.bot.uivtt/workspace',
+      );
 
       final retried = await OmnibotResourceService.ensureWorkspacePathsLoaded();
       expect(callCount, 2);
