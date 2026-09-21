@@ -296,7 +296,7 @@ class _WebViewPageState extends State<WebViewPage> {
       _desktopModeSessionDefault = _desktopMode;
     });
     await _applyUserAgentProfile();
-    await _reload();
+    _reload();
   }
 
   /// 把当前档位的 UA 应用到 WebView。
