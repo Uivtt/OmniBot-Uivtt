@@ -96,23 +96,19 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Install Android SDK platform
+      # 注意：GitHub 默认以 `bash -e -o pipefail` 执行 shell。
+      # `yes | sdkmanager --licenses` 中 sdkmanager 读完后 yes 会收到 EPIPE，
+      # 以非 0 退出（"yes: standard output: Broken pipe"），配合 pipefail
+      # 会把整条管道判为失败并中止步骤（上一次 run 35560740742 即因此失败，
+      # 属竞态）。这里显式容忍该管道，并把三类包合并为一次安装。
+      - name: Install Android SDK packages
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-${{ env.ANDROID_PLATFORM_VERSION }}"
-
-      - name: Install Android build-tools
-        shell: bash
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "build-tools;${{ env.ANDROID_BUILD_TOOLS_VERSION }}"
-
-      - name: Install Android NDK
-        shell: bash
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "ndk;${{ env.NDK_VERSION }}"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager --install \
+            "platforms;android-${ANDROID_PLATFORM_VERSION}" \
+            "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
+            "ndk;${NDK_VERSION}"
 
       - name: Export Android NDK environment
         shell: bash
