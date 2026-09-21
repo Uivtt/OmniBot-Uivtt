@@ -166,7 +166,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "cn.com.omnimind.bot"
+        applicationId = "cn.com.omnimind.bot.uivtt"
         minSdk = 29
         targetSdk = 36
         // Release 0.6.1. Keep the Android version code monotonic so the APK
@@ -191,7 +191,15 @@ android {
             preferPackagedOmniFlowRuntime.toString(),
         )
         ndk {
-            abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
+            // 二改：默认只构建本机架构 arm64-v8a（vivo V2172A）。
+            // 需要恢复多架构时用 -PuivttAbis=arm64-v8a,x86_64 覆盖。
+            val uivttAbis = (project.findProperty("uivttAbis") as String?)
+                ?.split(',')
+                ?.map(String::trim)
+                ?.filter(String::isNotEmpty)
+                ?.takeIf { it.isNotEmpty() }
+                ?: listOf("arm64-v8a")
+            abiFilters.addAll(uivttAbis)
         }
 
     }

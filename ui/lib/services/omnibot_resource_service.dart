@@ -43,10 +43,17 @@ class OmnibotWorkspacePaths {
     required this.internalRootPath,
   });
 
+  /// 二改：应用包名为 cn.com.omnimind.bot.uivtt（与上游官方包并存安装），
+  /// Android 侧数据目录随之变化。这里是工作区路径的唯一默认真源；
+  /// 真实路径仍由原生端经 MethodChannel 返回，仅在不可用时兜底。
+  static const String defaultRootPath =
+      '/data/user/0/cn.com.omnimind.bot.uivtt/workspace';
+  static const String defaultInternalRootPath =
+      '/data/user/0/cn.com.omnimind.bot.uivtt/workspace/.omnibot';
+
   factory OmnibotWorkspacePaths.fromMap(Map<dynamic, dynamic> map) {
     final rootPath =
-        (map['rootPath'] as String?)?.trim() ??
-        '/data/user/0/cn.com.omnimind.bot/workspace';
+        (map['rootPath'] as String?)?.trim() ?? defaultRootPath;
     final shellRootPath =
         (map['shellRootPath'] as String?)?.trim() ?? '/workspace';
     final internalRootPath =
@@ -69,9 +76,9 @@ class OmnibotResourceService {
   ];
   static const OmnibotWorkspacePaths _defaultWorkspacePaths =
       OmnibotWorkspacePaths(
-        rootPath: '/data/user/0/cn.com.omnimind.bot/workspace',
+        rootPath: OmnibotWorkspacePaths.defaultRootPath,
         shellRootPath: '/workspace',
-        internalRootPath: '/data/user/0/cn.com.omnimind.bot/workspace/.omnibot',
+        internalRootPath: OmnibotWorkspacePaths.defaultInternalRootPath,
       );
 
   static OmnibotWorkspacePaths _workspacePaths = _defaultWorkspacePaths;

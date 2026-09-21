@@ -376,7 +376,12 @@ mixin ConversationManager<T extends StatefulWidget> on State<T> {
             ? List<ChatMessageModel>.from(latestRuntimeMessages)
             : pagedResult.messages;
         setState(() {
-          hasMoreMessages = latestRuntimeMessages == null && pagedResult.hasMore;
+          // 二改修复：原先为 `latestRuntimeMessages == null && pagedResult.hasMore`，
+          // 只要当前会话存在 runtime 快照（正常聊天几乎总是存在）就会把 hasMoreMessages
+          // 置为 false，使 loadMoreMessages() 直接 return，用户永远无法向上加载更早的历史，
+          // 表现为「往上滑最多只能看到最近三四条记录」（对应上游 Issue #373）。
+          // 分页能力应完全由 history provider 的分页结果决定。
+          hasMoreMessages = pagedResult.hasMore;
           // The history provider is allowed to return a short page. Advance
           // from what was actually received so a partial response cannot
           // create a gap before the next page.

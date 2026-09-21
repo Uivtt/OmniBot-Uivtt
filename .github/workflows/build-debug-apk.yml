@@ -1,0 +1,152 @@
+name: Build Debug APK (arm64-v8a)
+
+# 二改专用：只构建本机架构（arm64-v8a，vivo V2172A）的 debug APK。
+#
+# 为什么必须放在 GitHub runner 上：Android 官方构建链没有 aarch64-linux 宿主工具。
+# 手机端 Alpine PRoot（aarch64）存在 4 条硬阻断：
+#   1. compileSdk=37，本机 AAPT2 2.19 仅兼容 Platform 34，处理 35+ 资源表报
+#      "illegal map type 'string' (22)"
+#   2. app 依赖 Flutter module（ui/.android/include_flutter.groovy，被 gitignore，需 Flutter 生成）
+#   3. Flutter 3.47.2 无 aarch64-linux 宿主，gen_snapshot/dart 为 x86_64 ELF，PRoot 无法执行
+#   4. 项目需 NDK 28.2.13676358，本机缺失
+#
+# 本 workflow 的 SDK/Flutter/Gradle 步骤与仓库自带 .github/workflows/ci.yml 保持一致，
+# 以保证与上游已验证通过的构建路径相同；差异仅在产物上传与 ABI 收敛。
+
+on:
+  workflow_dispatch:
+    inputs:
+      abis:
+        description: '目标 ABI，逗号分隔。默认只构建本机架构。'
+        required: false
+        default: 'arm64-v8a'
+        type: string
+  push:
+    branches:
+      - fix/context-history-loss
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-debug-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '21'
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.28.0'
+  FLUTTER_VERSION: '3.47.2'
+  ANDROID_BUILD_TOOLS_VERSION: '36.0.0'
+  ANDROID_PLATFORM_VERSION: '37.0'
+  ANDROID_CMAKE_VERSION: '3.22.1'
+  NDK_VERSION: '28.2.13676358'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost || true
+          df -h /
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # 关键修复：必须显式指定 packages，默认值会去装 Google 已下架的 legacy
+      # "tools" 包，导致 setup-android 直接失败（上一次构建即卡在这一步）。
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      # 注意：GitHub 默认以 `bash -e -o pipefail` 执行 shell。
+      # `yes | sdkmanager --licenses` 中 sdkmanager 读完后 yes 会收到 EPIPE，
+      # 以非 0 退出（"yes: standard output: Broken pipe"），配合 pipefail
+      # 会把整条管道判为失败并中止步骤（上一次 run 35560740742 即因此失败，
+      # 属竞态）。这里显式容忍该管道，并把三类包合并为一次安装。
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager --install \
+            "platforms;android-${ANDROID_PLATFORM_VERSION}" \
+            "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
+            "ndk;${NDK_VERSION}"
+
+      - name: Export Android NDK environment
+        shell: bash
+        run: |
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ env.NDK_VERSION }}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/${{ env.NDK_VERSION }}" >> "$GITHUB_ENV"
+
+      - name: Install Flutter dependencies
+        working-directory: ui
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build debug APK (arm64-v8a only)
+        shell: bash
+        env:
+          ABIS: ${{ inputs.abis || 'arm64-v8a' }}
+        run: |
+          set -euo pipefail
+          echo "Target ABIs: ${ABIS}"
+          ./gradlew --no-daemon --parallel --build-cache --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED" \
+            :app:assembleDevelopStandardDebug \
+            -Ptarget=lib/main_standard.dart \
+            -PuivttAbis="${ABIS}" \
+            --stacktrace
+
+      - name: Collect APK
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/apk-out"
+          find app/build/outputs/apk -name "*.apk" -type f -print -exec cp {} "${RUNNER_TEMP}/apk-out/" \; || true
+          ls -lh "${RUNNER_TEMP}/apk-out" || true
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnibot-uivtt-debug-arm64-v8a
+          path: ${{ runner.temp }}/apk-out/*.apk
+          if-no-files-found: warn
+          retention-days: 30
