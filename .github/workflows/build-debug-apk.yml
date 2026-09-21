@@ -1,0 +1,133 @@
+name: Build Debug APK (arm64-v8a)
+
+# 二改专用：只构建本机架构（arm64-v8a）的 debug APK。
+# 放在 GitHub 的 x86_64 runner 上构建，因为 Android 官方构建链
+# （AAPT2 / Flutter gen_snapshot / NDK clang）没有 aarch64-linux 宿主工具，
+# 在手机端的 Alpine PRoot 里无法完成本项目（compileSdk 37）的构建。
+
+on:
+  workflow_dispatch:
+    inputs:
+      abis:
+        description: '目标 ABI，逗号分隔。默认只构建本机架构。'
+        required: false
+        default: 'arm64-v8a'
+        type: string
+  push:
+    branches:
+      - fix/context-history-loss
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-debug-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '21'
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.28.0'
+  FLUTTER_VERSION: '3.47.2'
+  ANDROID_BUILD_TOOLS_VERSION: '36.0.0'
+  ANDROID_PLATFORM_VERSION: '37.0'
+  ANDROID_CMAKE_VERSION: '3.22.1'
+  NDK_VERSION: '28.2.13676358'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost || true
+          df -h
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        env:
+          ABIS: ${{ inputs.abis || 'arm64-v8a' }}
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;${ANDROID_PLATFORM_VERSION}" \
+            "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
+            "cmake;${ANDROID_CMAKE_VERSION}" \
+            "ndk;${NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Resolve Flutter dependencies
+        shell: bash
+        working-directory: ui
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get
+
+      - name: Build debug APK (arm64-v8a only)
+        shell: bash
+        env:
+          ABIS: ${{ inputs.abis || 'arm64-v8a' }}
+        run: |
+          set -euo pipefail
+          echo "Building ABIs: ${ABIS}"
+          ./gradlew :app:assembleDebug \
+            -PuivttAbis="${ABIS}" \
+            -Ptarget-platform=android-arm64 \
+            --stacktrace
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/apk-out"
+          find app/build/outputs/apk -name "*.apk" -type f -print -exec cp {} "${RUNNER_TEMP}/apk-out/" \;
+          ls -lh "${RUNNER_TEMP}/apk-out"
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnibot-uivtt-debug-arm64-v8a
+          path: ${{ runner.temp }}/apk-out/*.apk
+          if-no-files-found: warn
+          retention-days: 30

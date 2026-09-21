@@ -41,6 +41,19 @@ class _WebViewPageState extends State<WebViewPage> {
   int _loadingProgress = 0;
   bool _isDownloading = false;
 
+  /// 二改新增：桌面端 UA 开关。
+  /// 原实现把 UA 硬编码为 Android 10 + Chrome 91 的移动 UA，且没有任何切换入口，
+  /// 导致部分站点永远只返回移动端页面，也无法伪装成桌面浏览器。
+  /// 会话内保持用户的选择，重新打开内置浏览器时沿用上次档位。
+  static bool _desktopModeSessionDefault = false;
+  bool _desktopMode = _desktopModeSessionDefault;
+
+  /// 与 Kotlin 侧 BrowserUserAgentProfile 对齐（Android 14 / Chrome 125）。
+  static const String _mobileUserAgent =
+      'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36';
+  static const String _desktopUserAgent =
+      'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
   /// 保存到的相册名称
   static const String _albumName = '小万';
 
@@ -126,9 +139,7 @@ class _WebViewPageState extends State<WebViewPage> {
         ),
       )
       ..enableZoom(widget.enableZoom)
-      ..setUserAgent(
-        'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
-      );
+      ..setUserAgent(_desktopMode ? _desktopUserAgent : _mobileUserAgent);
 
     _loadInitialSource();
 
@@ -278,6 +289,26 @@ class _WebViewPageState extends State<WebViewPage> {
     unawaited(_handleBackPress());
   }
 
+  /// 二改新增：切换桌面端 / 移动端 UA，立即生效并重新加载当前页面。
+  Future<void> _toggleUserAgentProfile() async {
+    setState(() {
+      _desktopMode = !_desktopMode;
+      _desktopModeSessionDefault = _desktopMode;
+    });
+    await _applyUserAgentProfile();
+    await _reload();
+  }
+
+  /// 把当前档位的 UA 应用到 WebView。
+  Future<void> _applyUserAgentProfile() async {
+    final userAgent = _desktopMode ? _desktopUserAgent : _mobileUserAgent;
+    try {
+      await _controller.setUserAgent(userAgent);
+    } catch (error) {
+      debugPrint('WebView setUserAgent 失败: $error');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -292,13 +323,29 @@ class _WebViewPageState extends State<WebViewPage> {
                 primary: true,
                 title: widget.title ?? '网页浏览',
                 onBackPressed: _handleAppBarBackPress,
-                trailing: widget.showRefreshButton
-                    ? IconButton(
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 二改新增：桌面端 / 移动端 UA 切换入口
+                    IconButton(
+                      icon: Icon(
+                        _desktopMode
+                            ? Icons.desktop_windows
+                            : Icons.smartphone,
+                      ),
+                      onPressed: _toggleUserAgentProfile,
+                      tooltip: _desktopMode
+                          ? '桌面端 UA（点击切换为移动端）'
+                          : '移动端 UA（点击切换为桌面端）',
+                    ),
+                    if (widget.showRefreshButton)
+                      IconButton(
                         icon: const Icon(Icons.refresh),
                         onPressed: _reload,
                         tooltip: '刷新',
-                      )
-                    : null,
+                      ),
+                  ],
+                ),
               )
             : null,
         body: SafeArea(

@@ -137,13 +137,38 @@ object AppUpdateManager {
 
     private const val WORKER_UPDATES_PATH = "updates"
     private const val WORKER_DOWNLOADS_PATH = "downloads"
+    /**
+     * 二改作者自定义：更新检查指向本仓库，避免二改版误装上游版本。
+     * 如需改回上游，把 OWNER 改成 "omnimind-ai"、NAME 改成 "OmniBot" 即可。
+     */
+    private const val GITHUB_REPOSITORY_OWNER = "Uivtt"
+    private const val GITHUB_REPOSITORY_NAME = "OmniBot-Uivtt"
     private const val GITHUB_RELEASE_DOWNLOAD_PREFIX =
-        "https://github.com/omnimind-ai/OpenOmniBot/releases/download"
+        "https://github.com/$GITHUB_REPOSITORY_OWNER/$GITHUB_REPOSITORY_NAME/releases/download"
+
+    /** 二改版本号前缀：release 资源名与安装展示名统一使用它。 */
+    private const val RELEASE_ASSET_PREFIX = "OmniBot-Uivtt"
+    private const val APP_DISPLAY_NAME = "OmniBot-Uivtt"
+
+    /**
+     * 兼容上游旧资源命名。二改版同时接受 `OpenOmniBot-v*`，
+     * 这样即使 release 资源沿用上游命名规则也能被正确识别。
+     */
+    private val LEGACY_RELEASE_ASSET_PREFIXES = listOf("OpenOmniBot-v")
+
+    /** 二改：release apk 资源名匹配，优先本仓库前缀并兼容上游旧前缀。 */
+    private fun isPreferredReleaseApkName(name: String): Boolean {
+        val lower = name.lowercase(Locale.ROOT)
+        if (!lower.endsWith(".apk")) return false
+        if (lower.startsWith(RELEASE_ASSET_PREFIX.lowercase(Locale.ROOT))) return true
+        return LEGACY_RELEASE_ASSET_PREFIXES.any { lower.startsWith(it.lowercase(Locale.ROOT)) }
+    }
+
     private const val WORK_NAME = "app_update_periodic_check"
     private const val PERIODIC_CHECK_HOURS = 12L
     private const val SILENT_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
     private const val CLOUD_SERVICE_POLICY_MAX_AGE_MS = 24 * 60 * 60 * 1000L
-    private const val USER_AGENT = "OpenOmniBot-App"
+    private const val USER_AGENT = "OmniBot-Uivtt-App"
     private const val EDITION_STANDARD = "standard"
     private val editionApkNamePattern =
         Regex("^openomnibot-.+-[a-z0-9_]+\\.apk$", RegexOption.IGNORE_CASE)
@@ -279,13 +304,13 @@ object AppUpdateManager {
         }
 
         val safeFileName = installState.apkName.ifBlank {
-            "OpenOmniBot-v${installState.latestVersion}.apk"
+            "$RELEASE_ASSET_PREFIX-v${installState.latestVersion}.apk"
         }
         return ExternalApkInstaller.downloadAndInstall(
             context = context,
             downloadUrl = installState.apkDownloadUrl,
             apkFileName = safeFileName,
-            displayName = "OpenOmniBot"
+            displayName = APP_DISPLAY_NAME
         )
     }
 
@@ -388,8 +413,7 @@ object AppUpdateManager {
         }
 
         val preferred = apkAssets.firstOrNull {
-            it.name.startsWith("OpenOmniBot-v", ignoreCase = true) &&
-                it.name.lowercase(Locale.ROOT).endsWith(".apk")
+            isPreferredReleaseApkName(it.name)
         }
         if (preferred != null) return preferred
         return apkAssets.firstOrNull()
